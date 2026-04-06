@@ -2,6 +2,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 # הגדרת תעודות הסל המייצגות את הסקטורים בארה"ב
 SECTORS = {
@@ -26,32 +30,78 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-@st.cache_data
-def load_sector_data():
-    performance = []
-    
-    for ticker, name in SECTORS.items():
+def _clear_yfinance_cache():
+    """מנקה את מטמון הטוקנים של yfinance כדי לאלץ חידוש אימות."""
+    try:
+        yf.utils.get_json = getattr(yf.utils, 'get_json', None)
+        # ניקוי מטמון cookie/crumb שמשמש לאימות
+        if hasattr(yf, 'shared') and hasattr(yf.shared, '_COOKIE'):
+            yf.shared._COOKIE = None
+        if hasattr(yf, 'shared') and hasattr(yf.shared, '_CRUMB'):
+            yf.shared._CRUMB = None
+        # ניקוי מטמון session
+        if hasattr(yf.utils, '_requests_session'):
+            yf.utils._requests_session = None
+        if hasattr(yf, 'cache') and hasattr(yf.cache, 'clear'):
+            yf.cache.clear()
+        logger.info("מטמון yfinance נוקה בהצלחה")
+    except Exception as e:
+        logger.warning(f"שגיאה בניקוי מטמון yfinance: {e}")
+
+
+def _fetch_ticker_history(ticker, period="2y", max_retries=3):
+    """מושך נתוני מניה עם ניסיונות חוזרים וחידוש טוקן במקרה של שגיאת אימות."""
+    last_error = None
+    for attempt in range(max_retries):
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="2y")
-            
+            hist = stock.history(period=period)
+            return hist
+        except Exception as e:
+            last_error = e
+            error_msg = str(e).lower()
+            is_auth_error = any(keyword in error_msg for keyword in [
+                '401', 'unauthorized', 'authentication', 'expired',
+                'oauth', 'token', 'forbidden', '403'
+            ])
+            if is_auth_error and attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(
+                    f"שגיאת אימות עבור {ticker} (ניסיון {attempt + 1}/{max_retries}), "
+                    f"מנקה מטמון וממתין {wait_time} שניות..."
+                )
+                _clear_yfinance_cache()
+                time.sleep(wait_time)
+            elif not is_auth_error:
+                raise
+    raise last_error
+
+
+@st.cache_data(ttl=3600)
+def load_sector_data():
+    performance = []
+
+    for ticker, name in SECTORS.items():
+        try:
+            hist = _fetch_ticker_history(ticker, period="2y")
+
             if not hist.empty and len(hist) > 50:
                 # מחירי סגירה
                 close_prices = hist['Close']
                 first_price = close_prices.iloc[0]
                 last_price = close_prices.iloc[-1]
-                
+
                 # חישוב תשואה (שנתיים)
                 pct_change = ((last_price - first_price) / first_price) * 100
-                
+
                 # חישוב RSI נוכחי
                 rsi_series = calculate_rsi(close_prices)
                 current_rsi = rsi_series.iloc[-1]
-                
+
                 # חישוב מרחק מממוצע נע 50
                 sma50 = close_prices.rolling(window=50).mean().iloc[-1]
                 dist_sma50 = ((last_price - sma50) / sma50) * 100
-                
+
                 performance.append({
                     'סימול': ticker,
                     'שם הסקטור': name,
@@ -75,6 +125,11 @@ st.set_page_config(page_title="דירוג וניתוח סקטורים בארה\"
 
 st.title('📊 דשבורד דירוג סקטורים ואינדיקטורים טכניים')
 st.markdown('השוואת 11 הסקטורים של מדד ה-S&P 500 על סמך תשואות העבר (שנתיים) ומדדי מומנטום טכניים (RSI וממוצעים נעים).')
+
+# כפתור לרענון נתונים (שימושי במקרה של שגיאת אימות)
+if st.button('🔄 רענן נתונים'):
+    _clear_yfinance_cache()
+    st.cache_data.clear()
 
 # טעינת הנתונים
 with st.spinner('מנתח נתונים ואינדיקטורים מהבורסה...'):
