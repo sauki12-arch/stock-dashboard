@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import time
 
 # הגדרת תעודות הסל המייצגות את הסקטורים בארה"ב
 SECTORS = {
@@ -26,14 +27,51 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-@st.cache_data
-def load_sector_data():
-    performance = []
-    
-    for ticker, name in SECTORS.items():
+def _clear_yfinance_cache():
+    """מנקה את מטמון yfinance כדי לאלץ חידוש טוקן OAuth."""
+    try:
+        yf.cache.clear()
+    except AttributeError:
+        pass
+    try:
+        from yfinance import shared
+        shared._ERRORS.clear()
+        shared._REQUESTS_SESSION = None
+    except (ImportError, AttributeError):
+        pass
+
+def fetch_ticker_history(ticker, period="2y", max_retries=3):
+    """מושך נתוני מניה עם ניסיון חוזר אוטומטי במקרה של שגיאת OAuth 401."""
+    last_error = None
+    for attempt in range(max_retries):
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="2y")
+            hist = stock.history(period=period)
+            if hist is not None and not hist.empty:
+                return hist
+            if attempt < max_retries - 1:
+                _clear_yfinance_cache()
+                time.sleep(1)
+        except Exception as e:
+            last_error = e
+            error_msg = str(e).lower()
+            if '401' in error_msg or 'oauth' in error_msg or 'token' in error_msg or 'expired' in error_msg or 'authentication' in error_msg:
+                _clear_yfinance_cache()
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+            raise
+    if last_error:
+        raise last_error
+    return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def load_sector_data():
+    performance = []
+
+    for ticker, name in SECTORS.items():
+        try:
+            hist = fetch_ticker_history(ticker, period="2y")
             
             if not hist.empty and len(hist) > 50:
                 # מחירי סגירה
@@ -60,7 +98,12 @@ def load_sector_data():
                     'מרחק מ-SMA 50 (%)': round(dist_sma50, 2)
                 })
         except Exception as e:
-            st.warning(f"שגיאה במשיכת נתונים עבור {ticker}: {e}")
+            error_msg = str(e).lower()
+            if '401' in error_msg or 'oauth' in error_msg or 'token' in error_msg or 'authentication' in error_msg:
+                st.error(f"שגיאת אימות (OAuth) עבור {ticker}. מנסה לרענן... {e}")
+                _clear_yfinance_cache()
+            else:
+                st.warning(f"שגיאה במשיכת נתונים עבור {ticker}: {e}")
 
     # יצירת DataFrame וסידור לפי התשואה
     df = pd.DataFrame(performance)
@@ -75,6 +118,12 @@ st.set_page_config(page_title="דירוג וניתוח סקטורים בארה\"
 
 st.title('📊 דשבורד דירוג סקטורים ואינדיקטורים טכניים')
 st.markdown('השוואת 11 הסקטורים של מדד ה-S&P 500 על סמך תשואות העבר (שנתיים) ומדדי מומנטום טכניים (RSI וממוצעים נעים).')
+
+# כפתור לרענון טוקן ומטמון
+if st.button('🔄 רענון נתונים (פתרון שגיאות אימות)'):
+    _clear_yfinance_cache()
+    st.cache_data.clear()
+    st.rerun()
 
 # טעינת הנתונים
 with st.spinner('מנתח נתונים ואינדיקטורים מהבורסה...'):
