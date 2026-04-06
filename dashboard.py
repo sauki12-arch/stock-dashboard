@@ -2,6 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import requests
+import time
 
 # הגדרת תעודות הסל המייצגות את הסקטורים בארה"ב
 SECTORS = {
@@ -26,32 +28,57 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-@st.cache_data
+def _fetch_ticker_history(ticker, period="2y", max_retries=3):
+    """משיכת נתוני טיקר עם ניסיונות חוזרים וטיפול בשגיאות אימות (401)."""
+    for attempt in range(max_retries):
+        try:
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            stock = yf.Ticker(ticker, session=session)
+            hist = stock.history(period=period)
+            return hist
+        except (requests.exceptions.HTTPError, Exception) as e:
+            error_msg = str(e).lower()
+            is_auth_error = any(
+                keyword in error_msg
+                for keyword in ['401', 'unauthorized', 'authentication', 'token', 'expired', 'oauth']
+            )
+            if is_auth_error and attempt < max_retries - 1:
+                wait_time = 2 ** (attempt + 1)
+                time.sleep(wait_time)
+                continue
+            raise
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
 def load_sector_data():
     performance = []
-    
+    auth_errors = 0
+
     for ticker, name in SECTORS.items():
         try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="2y")
-            
+            hist = _fetch_ticker_history(ticker)
+
             if not hist.empty and len(hist) > 50:
                 # מחירי סגירה
                 close_prices = hist['Close']
                 first_price = close_prices.iloc[0]
                 last_price = close_prices.iloc[-1]
-                
+
                 # חישוב תשואה (שנתיים)
                 pct_change = ((last_price - first_price) / first_price) * 100
-                
+
                 # חישוב RSI נוכחי
                 rsi_series = calculate_rsi(close_prices)
                 current_rsi = rsi_series.iloc[-1]
-                
+
                 # חישוב מרחק מממוצע נע 50
                 sma50 = close_prices.rolling(window=50).mean().iloc[-1]
                 dist_sma50 = ((last_price - sma50) / sma50) * 100
-                
+
                 performance.append({
                     'סימול': ticker,
                     'שם הסקטור': name,
@@ -60,14 +87,24 @@ def load_sector_data():
                     'מרחק מ-SMA 50 (%)': round(dist_sma50, 2)
                 })
         except Exception as e:
-            st.warning(f"שגיאה במשיכת נתונים עבור {ticker}: {e}")
+            error_msg = str(e).lower()
+            if any(k in error_msg for k in ['401', 'unauthorized', 'authentication', 'token', 'expired', 'oauth']):
+                auth_errors += 1
+                st.warning(f"שגיאת אימות (401) עבור {ticker} – הטוקן פג תוקף. מנסה שוב בטעינה הבאה.")
+            else:
+                st.warning(f"שגיאה במשיכת נתונים עבור {ticker}: {e}")
+
+    if auth_errors > len(SECTORS) // 2:
+        st.error("רוב הסקטורים נכשלו עקב שגיאת אימות. נסה לרענן את הדף.")
+        st.cache_data.clear()
 
     # יצירת DataFrame וסידור לפי התשואה
     df = pd.DataFrame(performance)
-    df = df.sort_values(by='תשואה בשנתיים (%)', ascending=False).reset_index(drop=True)
-    df.index = df.index + 1
-    df.index.name = 'דירוג'
-    
+    if not df.empty:
+        df = df.sort_values(by='תשואה בשנתיים (%)', ascending=False).reset_index(drop=True)
+        df.index = df.index + 1
+        df.index.name = 'דירוג'
+
     return df
 
 # --- עיצוב ממשק המשתמש בדשבורד ---
