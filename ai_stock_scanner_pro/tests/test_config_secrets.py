@@ -50,3 +50,10 @@ def test_secrets_roundtrip_not_plaintext_on_disk_and_env_override(monkeypatch):
     secrets.clear_telegram()
     monkeypatch.delenv("AISP_TELEGRAM_TOKEN")
     assert not secrets.load_telegram().configured
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="DPAPI exists only on Windows – run this test on the target PC")
+def test_dpapi_roundtrip_and_ciphertext_differs_windows_only():
+    blob, protected = secrets._protect("123456:SECRET")
+    assert protected and "SECRET" not in __import__("base64").b64decode(blob).decode("latin1")
+    assert secrets._unprotect(blob, True) == "123456:SECRET"

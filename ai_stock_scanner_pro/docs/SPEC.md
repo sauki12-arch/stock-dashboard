@@ -109,7 +109,7 @@ score_versions(version PK, ts, weights_json, approved, note)
 | 7 | Telegram | `test_alerts.py` (mock HTTP) + CLI `telegram-test` (**manual**, needs your token) |
 | 8 | Survives partial failures | `test_data_engine.py` |
 | 9 | Paper trading | `test_broker.py` |
-| 10 | EXE procedure | `BUILD_EXE.bat`, `build/aiscanner.spec` (Windows – **manual**) |
+| 10 | EXE procedure | `BUILD_EXE.bat`, `packaging/aiscanner.spec` (Windows – **manual**) |
 
 Items marked **manual** cannot be executed in the Linux CI sandbox where this
 code was written; see README "Known limitations".

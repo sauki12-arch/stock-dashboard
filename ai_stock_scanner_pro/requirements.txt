@@ -1,0 +1,10 @@
+# Runtime dependencies – exact versions this code was tested with (Python 3.13, Linux).
+# Windows: use 64-bit Python 3.12 or 3.13. NOT yet verified on Windows – see README_HE.md "מגבלות ידועות".
+pandas==3.0.5
+numpy==2.5.3
+PyYAML==6.0.3
+requests==2.34.2
+PySide6==6.12.0
+pyqtgraph==0.14.0
+yfinance==1.7.0
+tzdata==2026.5          # IANA time-zone database; Windows has no system copy for zoneinfo

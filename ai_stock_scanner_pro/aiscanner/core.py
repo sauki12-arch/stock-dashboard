@@ -27,7 +27,7 @@ from .portfolio.broker import PaperBroker
 from .portfolio.monitor import MonitorReport, PortfolioMonitor
 from .portfolio.risk import Decision, PortfolioState, Proposal, RiskEngine
 from .portfolio.store import PortfolioStore
-from .review.weekly import ScoreVersions, build_report, save_report
+from .review.weekly import ScoreVersions, build_report, portfolio_review_section, save_report
 from .scheduler import due_jobs
 
 log = logging.getLogger(__name__)
@@ -188,7 +188,10 @@ class AppCore:
                 self.alerts.flush_deferred()
                 if job == "weekly_review":
                     rep = build_report(self.store, self.clock())
+                    rep.notes.append("סעיף סקירת התיק מצורף בסוף הדוח")
                     path = save_report(rep, paths.app_home() / "reports")
+                    with open(path, "a", encoding="utf-8") as fh:
+                        fh.write(portfolio_review_section(jr.monitor, jr.scan))
                     jr.messages.append(f"weekly report: {path}")
             elif job == "intraday":
                 held = [p.symbol for p in self.pstore.positions()]

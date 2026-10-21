@@ -1,0 +1,57 @@
+# AI Stock Scanner Pro – configuration template.
+# Copy to %APPDATA%\AIStockScannerPro\config.yaml (the Settings screen writes this file for you).
+# Unknown keys are rejected. NEVER put the Telegram token here – use the Settings screen (stored encrypted via DPAPI).
+data:
+  provider: mock            # "mock" = SYNTHETIC demo data; "yahoo" = Yahoo Finance via yfinance (unofficial, personal use)
+  history_days: 800
+  batch_size: 50
+  max_workers: 3
+  requests_per_second: 2.0
+  max_retries: 4
+  backoff_base_s: 1.5
+  overlap_days: 10
+  adjust_tolerance: 0.005
+  max_stale_sessions: 1
+  grace_minutes_after_close: 20
+scan:
+  min_price: 5.0
+  min_dollar_volume: 20000000.0
+  min_bars: 220
+  max_spread_proxy: 0.01
+  band_high: 85             # provisional – NOT calibrated
+  band_strong: 70
+  band_monitor: 55
+  swing_min_rr: 1.5
+  longterm_min_rr: 1.5
+  enable_experimental_patterns: true
+  # swing_weights / longterm_weights: change only through the versioned proposal -> backtest -> approval workflow
+risk:
+  starting_cash: 100000.0
+  risk_per_trade: 0.01      # 1 % of equity per new trade (fixed requirement)
+  max_positions: 10
+  max_position_pct: 0.20
+  max_sector_pct: 0.35
+  max_total_risk_pct: 0.08
+  slippage_bps: 5.0
+  fee_per_trade: 1.0
+  gap_through_pct: 0.02
+  gap_stress_multiple: 2.5
+  drawdown_alert_pct: 0.10
+  correlation_alert: 0.85
+alerts:
+  enabled: true
+  quiet_start: "23:00"
+  quiet_end: "07:00"
+  quiet_tz: Asia/Jerusalem
+  max_per_hour: 6
+  dedupe_hours: 24
+  new_setup_min_score: 85
+schedule:
+  enabled: false            # the app must be running for scheduled jobs to execute
+  pre_market_minutes_before_open: 60
+  post_close_minutes_after_close: 30
+  intraday_enabled: false
+  intraday_minutes: 30
+  weekly_review_weekday: 5  # Monday=0 ... Saturday=5
+  weekly_review_time: "09:00"   # America/New_York
+universe_path: ""           # empty = bundled 500-symbol list (config/universe_default.csv)

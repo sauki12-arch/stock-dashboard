@@ -201,3 +201,20 @@ class ScoreVersions:
             r = c.execute("SELECT weights_json FROM score_versions WHERE strategy=? AND approved=1 ORDER BY approved_ts DESC LIMIT 1",
                           (strategy,)).fetchone()
         return json.loads(r["weights_json"]) if r else None
+
+
+def portfolio_review_section(monitor_report, scan) -> str:
+    """Weekly long-term review of current holdings: health flags, P/L and the latest long-term score (if scanned)."""
+    from .. import i18n
+    L = ["", "## סקירת תיק שבועית (טווח ארוך)", ""]
+    if monitor_report is None or not monitor_report.positions:
+        return "\n".join(L + ["- אין פוזיציות בתיק.", ""])
+    m = monitor_report.metrics
+    L.append(f"- הון {m['equity']:,.0f}$ | חשיפה {m['exposure_pct']:.0%} | סיכון פתוח {m['open_risk_pct']:.1%} | ירידה מהשיא {m['drawdown']:.1%}")
+    for h in sorted(monitor_report.positions, key=lambda x: x.symbol):
+        cand = scan.by_symbol(h.symbol) if scan else None
+        lt = (cand.scores.get("longterm") if cand else None) or {}
+        score = f"ציון טווח ארוך {lt['total']:.0f}" + (" (לא מאומת)" if not lt.get("validated") else "") if lt else "לא נסרקה/לא זכאית"
+        flags = "; ".join(i18n.render(r) for r in h.flags) or "תקין"
+        L.append(f"- **{h.symbol}** [{i18n.STRATEGY.get(h.strategy, 'לא מוגדר')}] {h.pnl_pct:+.1%} | {score} | {flags}")
+    return "\n".join(L + [""])

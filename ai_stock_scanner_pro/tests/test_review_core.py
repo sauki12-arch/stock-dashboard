@@ -191,3 +191,14 @@ def test_core_due_jobs_respects_last_run(core):
     assert core.due_jobs() == ["post_close", "weekly_review"] or "post_close" in core.due_jobs()
     core.store.set_job_run("post_close", NOW.isoformat())
     assert "post_close" not in core.due_jobs()
+
+
+def test_weekly_review_job_writes_report_with_portfolio_section(core, tmp_path):
+    core.update_data()
+    last = float(core.store.load_bars("AAPL").close.iloc[-1])
+    core.broker.add_manual_position(Position("AAPL", 10, last, stop=last * 0.8, sector="XLK", strategy="longterm"))
+    r = core.run_job("weekly_review")
+    assert r.ok, r.messages
+    path = [m for m in r.messages if m.startswith("weekly report:")][0].split(": ", 1)[1]
+    text = open(path, encoding="utf-8").read()
+    assert "סקירה שבועית" in text and "סקירת תיק שבועית" in text and "AAPL" in text
