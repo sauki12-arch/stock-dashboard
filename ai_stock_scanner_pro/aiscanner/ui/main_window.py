@@ -184,15 +184,25 @@ class MainWindow(QMainWindow):
             msg = rep.summary()
             self.notify(msg)
             if rep.provider_down:
-                QMessageBox.warning(self, "ספק נתונים", "ספק הנתונים אינו זמין כרגע. נשארים עם הנתונים השמורים (ייתכן שהם ישנים). ראה אבחון.")
+                sample = next(iter(rep.messages.values()), "")
+                QMessageBox.warning(self, "ספק נתונים", "ספק הנתונים אינו זמין כרגע (נכשלו כל הבקשות). נשארים עם הנתונים השמורים, ייתכן שהם ישנים.\n"
+                                    f"סיבה: {sample}\nבדוק חיבור אינטרנט/חומת אש, או נסה שוב בעוד כמה דקות (Yahoo מגביל קצב).")
             elif rep.n_failed:
+                bad = [(s, rep.messages.get(s, rep.status[s])) for s in rep.status if rep.status[s] in ("failed", "empty")]
                 self.notify(msg + " – ראה 'הגדרות ואבחון' לפירוט שגיאות")
+                if len(bad) >= max(5, len(rep.status) // 20):
+                    QMessageBox.warning(self, "עדכון חלקי", f"{len(bad)} מתוך {len(rep.status)} סימולים לא נטענו (ייתכן שהוחלפו/נמחקו, או הגבלת קצב).\n"
+                                        + "\n".join(f"{s}: {m}" for s, m in bad[:6]) + "\n\nהסימולים האלה מוחרגים מהדירוג. הרצה חוזרת של 'עדכן נתונים' מנסה אותם שוב.")
             self.refresh_all()
             if then_scan and not rep.cancelled:
                 self.run_scan()
         self._start("עדכון נתונים", lambda p, c: self.core.update_data(p, c), done)
 
     def run_scan(self) -> None:
+        if not self.core.store.bar_counts():          # nothing downloaded yet: fetch first, then scan
+            self.notify("אין נתוני שוק – מורידים נתונים ואז סורקים")
+            return self.run_update(then_scan=True)
+
         def done(res):
             self.notify(f"הסריקה הסתיימה: {res.n_eligible}/{res.n_universe} זכאיות, משטר {res.regime['regime']} ({res.seconds:.0f} שניות)")
             from ..alerts.manager import detect_new_setups

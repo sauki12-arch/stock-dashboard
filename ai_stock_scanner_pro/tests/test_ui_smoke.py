@@ -193,3 +193,10 @@ def test_alerts_screen_filters(win, qapp):
     assert 0 < al.proxy.rowCount() < n_all or n_all == 1
     for i in range(al.proxy.rowCount()):
         assert al.m.rows[al.proxy.mapToSource(al.proxy.index(i, 0)).row()]["severity"] == "critical"
+
+
+def test_scan_with_empty_store_downloads_first(win, qapp):
+    win.core.store.purge_market_data()
+    win.run_scan()                                   # must not scan an empty store: it chains update -> scan
+    assert wait_for(qapp, lambda: not win.busy and win.core.latest_scan() is not None)
+    assert win.core.store.bar_counts() and win.core.latest_scan().n_eligible > 0

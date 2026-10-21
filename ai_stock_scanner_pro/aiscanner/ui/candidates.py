@@ -156,7 +156,7 @@ class CandidateBrowser(QWidget):
         sp = QSplitter(Qt.Horizontal)
         sp.addWidget(self.detail)
         sp.addWidget(self.view)
-        sp.setSizes([560, 700])
+        sp.setSizes([430, 900])
         lay.addWidget(sp, 1)
         self.count = muted("")
         lay.addWidget(self.count)
