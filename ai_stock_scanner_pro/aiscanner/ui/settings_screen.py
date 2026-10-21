@@ -47,6 +47,7 @@ class SettingsScreen(QWidget):
         self._scan()
         self._alerts()
         self._schedule()
+        self._barchart()
         self._diag()
         bar = QHBoxLayout()
         save = QPushButton("💾 שמור הגדרות")
@@ -173,6 +174,49 @@ class SettingsScreen(QWidget):
         f.addRow(muted("כל השעות לפי America/New_York, כולל מעבר שעון קיץ וימי חג/קצרים של NYSE. אין שירות רקע: משימות שהוחמצו מבוצעות בהשלמה כשהאפליקציה נפתחת."))
         self.tabs.addTab(w, "תזמון")
 
+    def _barchart(self):
+        c = self.core.settings.barchart
+        w = QWidget(); f = QFormLayout(w)
+        self.bc_on = QCheckBox("סנכרן באופן קבוע את התיק מ-BARCHART (קריאה בלבד)"); self.bc_on.setChecked(c.enabled)
+        self.bc_folder = QLineEdit(c.folder)
+        br = QPushButton("בחר תיקייה…"); br.clicked.connect(self._browse_bc)
+        row = QHBoxLayout(); row.addWidget(self.bc_folder, 1); row.addWidget(br)
+        self.bc_int = ispin(1, 1440, c.interval_minutes)
+        self.bc_mirror = QCheckBox("הסר כאן פוזיציות שנעלמו מ-BARCHART (רק כאלה שסונכרנו ממנו)"); self.bc_mirror.setChecked(c.mirror_removals)
+        now = QPushButton("סנכרן עכשיו"); now.setObjectName("primary"); now.clicked.connect(self._sync_now)
+        self.bc_state = muted("")
+        for lbl, wd in (("", self.bc_on), ("תיקיית BARCHART", row), ("בדיקת שינויים כל (דקות)", self.bc_int), ("", self.bc_mirror), ("", now), ("", self.bc_state)):
+            f.addRow(lbl, wd)
+        f.addRow(muted("חד-כיווני: הקבצים של BARCHART (portfolio.json וכו') נקראים בלבד ולעולם לא נכתבים. BARCHART נחשב מקור האמת לכמות, מחיר כניסה, סטופ ויעד של הפוזיציות שסונכרנו ממנו. "
+                       "פוזיציות ידניות/נייר אינן נמחקות. קובץ פגום או באמצע כתיבה אינו משנה דבר. אם הקובץ מכיל שדה cash הוא יקבע את יתרת המזומן; אחרת הגדר מזומן ידנית."))
+        box = QGroupBox("נתוני דמו")
+        v = QVBoxLayout(box)
+        v.addWidget(muted("מוחק את כל נתוני השוק, הסריקות, ההתראות, היסטוריית ההון ופוזיציות/עסקאות נייר – כדי להתחיל נקי עם נתוני אמת. "
+                          "פוזיציות ידניות או מ-BARCHART לא נמחקות. החלפת ספק בין סינתטי לאמיתי מנקה זאת אוטומטית."))
+        clr = QPushButton("🧹 נקה נתוני דמו עכשיו"); clr.setObjectName("danger"); clr.clicked.connect(self._clear_demo)
+        v.addWidget(clr)
+        f.addRow(box)
+        self.tabs.addTab(w, "תיק BARCHART ונתוני דמו")
+
+    def _browse_bc(self):
+        d = QFileDialog.getExistingDirectory(self, "בחר תיקיית BARCHART", self.bc_folder.text())
+        if d:
+            self.bc_folder.setText(d)
+
+    def _sync_now(self):
+        self.save()
+        r = self.core.sync_portfolio(force=True)
+        self.bc_state.setText(f"{r.status}: {r.message} | נוספו {len(r.added)}, עודכנו {len(r.updated)}, הוסרו {len(r.removed)}"
+                              + (f" | שגיאות: {'; '.join(r.errors[:3])}" if r.errors else ""))
+
+    def _clear_demo(self):
+        if QMessageBox.warning(self, "ניקוי נתוני דמו", "למחוק את כל נתוני השוק, הסריקות, ההתראות ופוזיציות/עסקאות הנייר?\nפוזיציות ידניות ומ-BARCHART יישארו.",
+                               QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        out = self.core.clear_demo_data()
+        self.win.notify(f"נוקו: {out['bars']} נרות, {out['scan_runs']} סריקות, {out['alerts']} התראות, {out['paper_positions']} פוזיציות נייר")
+        self.win.refresh_all()
+
     def _diag(self):
         w = QWidget(); v = QVBoxLayout(w)
         b = QHBoxLayout()
@@ -236,16 +280,22 @@ class SettingsScreen(QWidget):
         a = s.alerts
         a.enabled, a.quiet_start, a.quiet_end, a.quiet_tz = self.a_enabled.isChecked(), self.q_start.text().strip(), self.q_end.text().strip(), self.q_tz.text().strip()
         a.max_per_hour, a.dedupe_hours, a.new_setup_min_score = self.a_rate.value(), self.a_dedupe.value(), self.a_score.value()
+        b = s.barchart
+        b.enabled, b.folder, b.interval_minutes, b.mirror_removals = self.bc_on.isChecked(), self.bc_folder.text().strip(), self.bc_int.value(), self.bc_mirror.isChecked()
         c = s.schedule
         c.enabled, c.pre_market_minutes_before_open, c.post_close_minutes_after_close = self.sch_on.isChecked(), self.pre.value(), self.post.value()
         c.intraday_enabled, c.intraday_minutes = self.intra_on.isChecked(), self.intra.value()
         c.weekly_review_weekday, c.weekly_review_time = self.wday.currentData(), self.wtime.text().strip()
+        old_provider = self.core.settings.data.provider
+        if s.data.provider != old_provider and self.core.would_purge_on_switch(s.data.provider):
+            if QMessageBox.warning(self, "החלפת ספק נתונים", "החלפה בין נתוני דמו לנתוני אמת תמחק את נתוני השוק, הסריקות וההתראות השמורים (פוזיציות ידניות/BARCHART יישארו). להמשיך?",
+                                   QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+                return
         try:
             save_settings(s)
         except (ConfigError, ValueError) as e:
             QMessageBox.warning(self, "הגדרות לא תקינות", str(e))
             return
-        old_provider = self.core.settings.data.provider
         self.core.reload_settings(s)
         if s.data.provider != old_provider:
             self.core.set_provider(s.data.provider)

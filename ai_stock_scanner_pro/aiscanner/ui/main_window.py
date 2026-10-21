@@ -64,6 +64,16 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self._tick)
         self.timer.start(60_000)
         self.on_settings_changed()
+        QTimer.singleShot(500, self._startup)
+
+    def _startup(self) -> None:
+        r = self.core.sync_portfolio(force=True)
+        if r.status != "disabled":
+            self.notify(f"סנכרון BARCHART: {r.status} {r.message}")
+            self.dirty.add(5)
+            self._navigate(self.nav.currentRow())
+        if not self.core.store.bar_counts():
+            self.status.setText("אין נתוני שוק – לחץ 'עדכן + סרוק' כדי להוריד נתוני אמת")
 
     # ---------------------------------------------------------------- chrome
     def _toolbar(self) -> QHBoxLayout:
@@ -198,6 +208,11 @@ class MainWindow(QMainWindow):
         self._start(f"משימה מתוזמנת: {job}", lambda p, c: self.core.run_job(job, p, c), done)
 
     def _tick(self) -> None:
+        r = self.core.sync_portfolio(min_interval=True)
+        if r.status == "ok" and r.changed:
+            self.notify(f"BARCHART סונכרן: +{len(r.added)} ~{len(r.updated)} -{len(r.removed)}")
+            self.dirty.update({0, 5, 6})
+            self._navigate(self.nav.currentRow())
         if self.busy or not self.core.settings.schedule.enabled:
             return
         due = self.core.due_jobs()

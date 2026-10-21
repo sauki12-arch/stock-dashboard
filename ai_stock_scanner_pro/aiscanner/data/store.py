@@ -181,6 +181,16 @@ class Store:
         with self.conn() as c:
             c.execute("INSERT OR REPLACE INTO job_runs VALUES(?,?)", (job, ts_iso))
 
+    def purge_market_data(self) -> dict[str, int]:
+        """Delete everything derived from market data (bars, scans, fetch log, alerts, equity history, job runs)."""
+        out = {}
+        with self.conn() as c:
+            for t in ("bars", "symbol_meta", "fetch_log", "scan_results", "scan_runs", "alerts", "equity_history", "job_runs"):
+                out[t] = c.execute(f"SELECT COUNT(*) n FROM {t}").fetchone()["n"]
+                c.execute(f"DELETE FROM {t}")
+            c.execute("DELETE FROM account WHERE key='data_origin'")
+        return out
+
     def table_counts(self) -> dict[str, int]:
         out = {}
         with self.conn() as c:

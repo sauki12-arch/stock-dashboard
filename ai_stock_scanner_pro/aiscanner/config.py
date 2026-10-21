@@ -21,7 +21,7 @@ class ConfigError(ValueError):
 
 @dataclass
 class DataCfg:
-    provider: str = "mock"            # "mock" | "yahoo"  (mock is the safe default)
+    provider: str = "yahoo"           # "yahoo" = real market data; "mock" = SYNTHETIC demo data (explicit opt-in only)
     history_days: int = 800           # calendar days of daily history kept
     batch_size: int = 50
     max_workers: int = 3
@@ -93,12 +93,22 @@ class ScheduleCfg:
 
 
 @dataclass
+class BarchartSyncCfg:
+    """One-way, read-only mirror of the BARCHART project's portfolio into this app (BARCHART files are never written)."""
+    enabled: bool = True
+    folder: str = r"C:\Projects\BARCHART"
+    interval_minutes: int = 5
+    mirror_removals: bool = True       # positions that disappear from BARCHART are removed here (only those synced from it)
+
+
+@dataclass
 class Settings:
     data: DataCfg = field(default_factory=DataCfg)
     scan: ScanCfg = field(default_factory=ScanCfg)
     risk: RiskCfg = field(default_factory=RiskCfg)
     alerts: AlertCfg = field(default_factory=AlertCfg)
     schedule: ScheduleCfg = field(default_factory=ScheduleCfg)
+    barchart: BarchartSyncCfg = field(default_factory=BarchartSyncCfg)
     universe_path: str = ""           # empty => bundled default
 
     # ---- validation -------------------------------------------------
@@ -122,6 +132,7 @@ class Settings:
         for t in (a.quiet_start, a.quiet_end, self.schedule.weekly_review_time):
             _parse_hhmm(t)
         _req(a.max_per_hour >= 1, "max_per_hour must be >= 1")
+        _req(self.barchart.interval_minutes >= 1, "barchart.interval_minutes must be >= 1")
         return self
 
 

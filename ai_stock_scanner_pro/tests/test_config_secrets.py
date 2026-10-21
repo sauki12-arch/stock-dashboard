@@ -7,7 +7,7 @@ from aiscanner.config import ConfigError, Settings, load_settings, save_settings
 def test_defaults_valid_and_roundtrip(tmp_path):
     s = load_settings(tmp_path / "none.yaml")
     assert s.risk.risk_per_trade == 0.01 and s.risk.max_positions == 10
-    assert s.data.provider == "mock"
+    assert s.data.provider == "yahoo"        # real data by default; demo data is an explicit opt-in
     p = save_settings(s, tmp_path / "c.yaml")
     assert load_settings(p) == s
 

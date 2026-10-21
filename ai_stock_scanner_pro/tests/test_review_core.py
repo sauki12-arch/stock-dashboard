@@ -117,7 +117,11 @@ def core(tmp_path):
     full = load_universe()
     syms = ["AAPL", "MSFT"] + [x for x in full.symbols if x not in ("AAPL", "MSFT")][:38]
     small = Universe(symbols=syms, sector={x: full.sector[x] for x in syms})      # 40 symbols keeps the suite fast
-    return AppCore(Settings(), clock=lambda: NOW, db_path=tmp_path / "t.db", sleep=lambda x: None, universe=small)
+    from aiscanner.data.mock import MockProvider
+    s = Settings()
+    s.barchart.enabled = False
+    return AppCore(s, clock=lambda: NOW, db_path=tmp_path / "t.db", sleep=lambda x: None, universe=small,
+                   provider=MockProvider(now=lambda: NOW, sector_map=small.sector))
 
 
 def test_core_end_to_end_job_with_portfolio_and_alerts(core):

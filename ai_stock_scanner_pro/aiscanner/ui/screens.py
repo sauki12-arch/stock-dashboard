@@ -245,7 +245,7 @@ class PortfolioScreen(QWidget):
             cards.addWidget(c)
         lay.addLayout(cards)
         btns = QHBoxLayout()
-        for text, fn, name in (("➕ הוסף פוזיציה קיימת", self.add_manual, ""), ("📥 ייבוא CSV", self.import_csv, ""),
+        for text, fn, name in (("🔁 סנכרן מ-BARCHART", self.sync_now, "primary"), ("➕ הוסף פוזיציה קיימת", self.add_manual, ""), ("📥 ייבוא CSV", self.import_csv, ""),
                                ("🔄 חשב מחדש", self.recompute, "primary"), ("⬆ החל סטופ נגרר מוצע", self.apply_trailing, ""),
                                ("✏ ערוך סטופ", self.edit_stop, ""), ("💵 סגור פוזיציה (נייר)", self.close_pos, ""),
                                ("🗑 הסר רשומה", self.remove, "danger"), ("⚙ אפס חשבון נייר", self.reset_account, "danger")):
@@ -255,6 +255,8 @@ class PortfolioScreen(QWidget):
             b.clicked.connect(fn)
             btns.addWidget(b)
         lay.addLayout(btns)
+        self.sync_lbl = muted("")
+        lay.addWidget(self.sync_lbl)
         tabs = QTabWidget()
         fm = lambda v: "" if v is None else f"{v:,.2f}"                                                      # noqa: E731
         self.pos = make_table([
@@ -288,8 +290,26 @@ class PortfolioScreen(QWidget):
     def refresh(self):
         self.recompute(record=False)
 
+    def sync_now(self):
+        r = self.core.sync_portfolio(force=True)
+        self.win.notify(f"סנכרון BARCHART: {r.status} – {r.message or 'הושלם'}")
+        self.recompute()
+
+    def _sync_text(self) -> str:
+        cfg, r = self.core.settings.barchart, self.core.last_sync
+        if not cfg.enabled:
+            return "סנכרון BARCHART כבוי (הגדרות ← תיק BARCHART)."
+        if r is None:
+            return f"סנכרון BARCHART מופעל מ-{cfg.folder} – טרם בוצע."
+        names = {"ok": "✔ סונכרן", "unchanged": "● ללא שינוי", "no_folder": "✖ התיקייה לא נמצאה", "no_file": "✖ לא נמצא קובץ תיק",
+                 "unreadable": "⚠ הקובץ לא קריא כרגע (ינוסה שוב)", "invalid": "✖ מבנה קובץ לא מזוהה", "disabled": "כבוי"}
+        extra = f" | נוספו {len(r.added)}, עודכנו {len(r.updated)}, הוסרו {len(r.removed)}" if r.status == "ok" else ""
+        err = f" | {len(r.errors)} שורות דולגו: {r.errors[0]}" if r.errors else ""
+        return f"BARCHART ({cfg.folder}): {names.get(r.status, r.status)}{extra}{err}" + (f" | {r.message}" if r.status not in ('ok', 'unchanged') else "")
+
     def recompute(self, *_, record: bool = True):
         core = self.core
+        self.sync_lbl.setText(self._sync_text())
         rep = core.monitor(record_equity=record)
         self.report = rep
         m = rep.metrics

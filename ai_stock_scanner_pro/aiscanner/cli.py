@@ -11,9 +11,13 @@ def _core(args):
     from .config import load_settings
     from .core import AppCore
     s = load_settings()
-    if args.provider:
-        s.data.provider = args.provider
-    return AppCore(s)
+    base = AppCore(s)
+    if args.provider and args.provider != s.data.provider:
+        if base.would_purge_on_switch(args.provider):
+            raise SystemExit(f"refusing --provider {args.provider}: it would delete the stored {'real' if args.provider == 'mock' else 'demo'} market data. "
+                             "Use a separate folder (--home) or the Settings screen / clear-demo command deliberately.")
+        base.set_provider(args.provider)
+    return base
 
 
 def _progress(label):
@@ -41,11 +45,16 @@ def main(argv: list[str] | None = None) -> int:
     bt = sub.add_parser("backtest", help="walk-forward backtest on stored data")
     bt.add_argument("--strategy", choices=["swing", "longterm"], default="swing")
     bt.add_argument("--symbols", type=int, default=50, help="use the first N universe symbols")
+    sub.add_parser("sync-portfolio", help="sync the portfolio from the BARCHART folder now (read-only)")
+    sub.add_parser("clear-demo", help="delete synthetic/demo market data, scans, alerts and paper trades")
     sub.add_parser("selftest", help="quick end-to-end check on synthetic data")
     args = ap.parse_args(argv)
     if args.home:
         os.environ["AISP_HOME"] = args.home
     cmd = args.cmd or "gui"
+    if cmd == "selftest":                       # never touch the user's real database
+        import tempfile
+        os.environ["AISP_HOME"] = tempfile.mkdtemp(prefix="aisp_selftest_")
 
     if cmd == "gui":
         from .ui.main_window import run_gui
@@ -84,6 +93,15 @@ def main(argv: list[str] | None = None) -> int:
             core.broker.add_manual_position(p)
         print(f"imported {len(res.positions)} positions, {len(res.errors)} errors")
         return 0 if not res.errors else 2
+    elif cmd == "sync-portfolio":
+        r = core.sync_portfolio(force=True)
+        print(r.status, "-", r.message)
+        print(f"added {r.added} updated {r.updated} removed {r.removed}")
+        for e in r.errors:
+            print("ERROR", e)
+        return 0 if r.status in ("ok", "unchanged") else 1
+    elif cmd == "clear-demo":
+        print(core.clear_demo_data())
     elif cmd == "backtest":
         return _backtest(core, args)
     elif cmd == "selftest":

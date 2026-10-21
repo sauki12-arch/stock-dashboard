@@ -24,6 +24,7 @@ from .discovery.indicators import build_frame
 from .discovery.scanner import ScanResult, Scanner, load_scan
 from .models import Alert
 from .portfolio.broker import PaperBroker
+from .portfolio.barchart_sync import SyncResult, sync_from_folder
 from .portfolio.monitor import MonitorReport, PortfolioMonitor
 from .portfolio.risk import Decision, PortfolioState, Proposal, RiskEngine
 from .portfolio.store import PortfolioStore
@@ -61,6 +62,64 @@ class AppCore:
         self.provider = provider or self._make_provider(self.settings.data.provider)
         self._build_pipeline()
         self.alerts = AlertManager(self.store, self.settings.alerts, self._sender(), clock)
+        self.last_sync: SyncResult | None = None
+        self._last_sync_at: datetime | None = None
+        self.guard_data_origin()
+
+    # ---------------------------------------------------------------- demo data / data origin
+    def _origin_tag(self) -> str:
+        return "synthetic" if self.provider.is_synthetic else "real"
+
+    def guard_data_origin(self) -> bool:
+        """Never mix synthetic and real data: if stored market data came from a different origin than the active provider,
+        wipe the market-data-derived tables (bars, scans, alerts, equity history). Returns True if a purge happened."""
+        stored = self.store.kv_get("data_origin")
+        if stored is None and self.store.bar_counts():
+            # database from an older build (no origin tag): its default provider was the synthetic one, so treat it as demo data
+            if self.provider.is_synthetic:
+                self.store.kv_set("data_origin", "synthetic")
+                return False
+            stored = "synthetic"
+        if stored and stored != self._origin_tag():
+            demo = stored == "synthetic"
+            self.store.purge_market_data()
+            if demo:
+                self.pstore.purge_paper(self.settings.risk.starting_cash)
+            self.store.kv_set("barchart_hash", "")
+            log.warning("data origin changed %s -> %s: market data purged", stored, self._origin_tag())
+            return True
+        return False
+
+    def would_purge_on_switch(self, provider_name: str) -> bool:
+        """True if switching to `provider_name` would wipe stored market data (synthetic <-> real)."""
+        stored = self.store.kv_get("data_origin")
+        if stored is None:
+            return bool(self.store.bar_counts()) and provider_name != "mock"
+        return stored != ("synthetic" if provider_name == "mock" else "real")
+
+    def clear_demo_data(self) -> dict:
+        """Explicit user action: remove ALL market data, scans, alerts and paper trades created on synthetic data."""
+        counts = self.store.purge_market_data()
+        n_pos, n_tr = self.pstore.purge_paper(self.settings.risk.starting_cash)
+        self.store.kv_set("barchart_hash", "")
+        self._scan_cache = None
+        return {**counts, "paper_positions": n_pos, "trades": n_tr}
+
+    # ---------------------------------------------------------------- BARCHART portfolio sync
+    def sync_portfolio(self, force: bool = False, min_interval: bool = False) -> SyncResult:
+        cfg = self.settings.barchart
+        if not cfg.enabled:
+            return SyncResult("disabled")
+        now = self.clock()
+        if min_interval and self._last_sync_at and (now - self._last_sync_at).total_seconds() < cfg.interval_minutes * 60:
+            return self.last_sync or SyncResult("unchanged")
+        self._last_sync_at = now
+        res = sync_from_folder(self.pstore, cfg.folder, self.universe.sector, cfg.mirror_removals, force)
+        self.last_sync = res
+        if res.status in ("no_folder", "no_file", "unreadable", "invalid") or res.errors:
+            self.alerts.process([Alert(f"portfolio_sync:{res.status}:{now.date()}", "warning", "sync_error",
+                                       "סנכרון תיק BARCHART", res.message or "; ".join(res.errors[:3]), "")])
+        return res
 
     # ---------------------------------------------------------------- wiring
     def _make_provider(self, name: str) -> DataProvider:
@@ -77,6 +136,7 @@ class AppCore:
         self.settings.data.provider = name
         self.provider = self._make_provider(name)
         self._build_pipeline()
+        self.guard_data_origin()
 
     def reload_settings(self, settings: Settings) -> None:
         self.settings = settings.validate()
@@ -108,7 +168,11 @@ class AppCore:
         return list(dict.fromkeys(self.universe.all_fetch_symbols() + held))
 
     def update_data(self, progress=None, cancel=None, force_full: bool = False) -> UpdateReport:
-        return self.engine.update_daily(self.fetch_symbols(), force_full=force_full, progress=progress, cancel=cancel)
+        self.sync_portfolio()                                  # so held symbols are fetched too
+        rep = self.engine.update_daily(self.fetch_symbols(), force_full=force_full, progress=progress, cancel=cancel)
+        if any(v in ("updated", "full_refresh") for v in rep.status.values()):
+            self.store.kv_set("data_origin", self._origin_tag())
+        return rep
 
     def scan(self, progress=None, cancel=None) -> ScanResult:
         return self.scanner.run(progress=progress, cancel=cancel)

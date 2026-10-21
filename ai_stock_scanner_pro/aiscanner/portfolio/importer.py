@@ -14,8 +14,10 @@ from pathlib import Path
 from ..data.universe import SECTOR_ETFS, SYMBOL_RE
 from .store import Position
 
-ALIASES = {"qty": "quantity", "shares": "quantity", "cost": "avg_cost", "avg_price": "avg_cost",
-           "average_cost": "avg_cost", "ticker": "symbol", "sector_etf": "sector"}
+ALIASES = {"qty": "quantity", "shares": "quantity", "size": "quantity", "cost": "avg_cost", "avg_price": "avg_cost",
+           "average_cost": "avg_cost", "entry": "avg_cost", "buy_price": "avg_cost", "entry_price": "avg_cost",
+           "ticker": "symbol", "sector_etf": "sector", "stop_loss": "stop", "take_profit": "target",
+           "buy_date": "opened_at", "opened": "opened_at"}
 
 
 @dataclass

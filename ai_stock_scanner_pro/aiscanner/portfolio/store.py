@@ -120,3 +120,17 @@ class PortfolioStore:
                 c.execute(f"DELETE FROM {t}")
         self.store.kv_set("cash", starting_cash)
         self.store.kv_set("starting_equity", starting_cash)
+
+    def purge_paper(self, starting_cash: float) -> tuple[int, int]:
+        """Remove paper-trading artefacts (positions tagged 'paper' and all trades) and reset cash. Manual/BARCHART positions stay."""
+        n_pos = 0
+        for p in self.positions():
+            if p.notes == "paper":
+                self.delete_position(p.symbol)
+                n_pos += 1
+        with self.store.conn() as c:
+            n_tr = c.execute("SELECT COUNT(*) n FROM trades").fetchone()["n"]
+            c.execute("DELETE FROM trades")
+        self.store.kv_set("cash", starting_cash)
+        self.store.kv_set("starting_equity", starting_cash)
+        return n_pos, n_tr

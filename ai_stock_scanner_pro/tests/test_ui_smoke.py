@@ -32,7 +32,11 @@ def win(qapp, tmp_path):
     full = load_universe()
     syms = ["AAPL", "MSFT"] + [x for x in full.symbols if x not in ("AAPL", "MSFT")][:23]
     u = Universe(symbols=syms, sector={x: full.sector[x] for x in syms})
-    core = AppCore(Settings(), clock=lambda: NOW, db_path=tmp_path / "ui.db", universe=u, sleep=lambda s: None)
+    from aiscanner.data.mock import MockProvider
+    st_ = Settings()
+    st_.barchart.enabled = False
+    core = AppCore(st_, clock=lambda: NOW, db_path=tmp_path / "ui.db", universe=u, sleep=lambda s: None,
+                   provider=MockProvider(now=lambda: NOW, sector_map=u.sector))
     core.update_data()
     core.scan()
     w = MainWindow(core)
