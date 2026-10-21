@@ -62,7 +62,9 @@ class RiskCfg:
     max_total_risk_pct: float = 0.08
     slippage_bps: float = 5.0
     fee_per_trade: float = 1.0
-    gap_stress_multiple: float = 2.0  # worst-case loss (gap+costs) may not exceed N x risk budget
+    gap_through_pct: float = 0.02     # stress: price gaps this far (fraction of entry) through the stop
+    gap_stress_multiple: float = 2.5  # worst-case loss (gap+costs) may not exceed N x risk budget
+    assumed_risk_pct_no_stop: float = 0.08  # open-risk assumption for held positions without a stop
     max_entry_deviation_pct: float = 0.05
     drawdown_alert_pct: float = 0.10
     correlation_alert: float = 0.85

@@ -1,0 +1,5 @@
+symbol,quantity,avg_cost,stop,target,sector,strategy,opened_at,notes
+AAPL,50,172.40,160.00,210.00,XLK,longterm,2026-01-15,example only - not real holdings
+MSFT,20,405.10,380.00,470.00,XLK,longterm,2026-02-02,example only
+JPM,40,198.75,185.00,230.00,XLF,swing,2026-02-20,example only
+XOM,60,112.30,104.50,128.00,XLE,swing,2026-03-01,example only

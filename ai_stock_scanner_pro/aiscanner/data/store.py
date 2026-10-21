@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS alerts(
 CREATE INDEX IF NOT EXISTS ix_alerts_key ON alerts(dedupe_key, ts);
 CREATE TABLE IF NOT EXISTS job_runs(job TEXT PRIMARY KEY, last_run_ts TEXT);
 CREATE TABLE IF NOT EXISTS score_versions(
-  version TEXT PRIMARY KEY, ts TEXT, weights_json TEXT, approved INTEGER, note TEXT);
+  version TEXT PRIMARY KEY, ts TEXT, strategy TEXT, weights_json TEXT, approved INTEGER, note TEXT,
+  backtest_json TEXT, approved_by TEXT, approved_ts TEXT);
 """
 
 
