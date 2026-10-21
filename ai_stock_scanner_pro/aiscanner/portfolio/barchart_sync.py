@@ -58,13 +58,34 @@ class SyncResult:
 
 
 def find_file(folder: str | Path) -> Path | None:
+    """Exact well-known names first (also in data/ subfolders), then any json/csv whose name looks like a portfolio."""
     f = Path(folder)
     if not f.is_dir():
         return None
-    for name in CANDIDATE_FILES:
-        if (f / name).is_file():
-            return f / name
-    return None
+    for base in (f, f / "data", f / "Data"):
+        for name in CANDIDATE_FILES:
+            if (base / name).is_file():
+                return base / name
+    hints = ("portfolio", "position", "holding")
+    found = [x for base in (f, f / "data", f / "Data") if base.is_dir() for x in base.iterdir()
+             if x.is_file() and x.suffix.lower() in (".json", ".csv") and any(h in x.name.lower() for h in hints)
+             and "closed" not in x.name.lower() and "history" not in x.name.lower()]
+    return max(found, key=lambda x: x.stat().st_mtime) if found else None
+
+
+def describe(obj, depth: int = 0) -> str:
+    """Short structural summary used in error messages (key names only – never values)."""
+    if isinstance(obj, list):
+        return f"list[{len(obj)}] of " + (describe(obj[0], depth + 1) if obj else "nothing")
+    if isinstance(obj, dict):
+        keys = list(obj)[:12]
+        inner = ""
+        if depth < 2 and obj:
+            first = next(iter(obj.values()))
+            if isinstance(first, (dict, list)):
+                inner = " -> first value: " + describe(first, depth + 1)
+        return "dict{" + ", ".join(map(str, keys)) + ("…" if len(obj) > 12 else "") + "}" + inner
+    return type(obj).__name__
 
 
 def _pick(d: dict, keys) -> object:
@@ -112,8 +133,10 @@ def _records(obj) -> tuple[list[tuple[str, dict]], str]:
             if isinstance(v, dict) and v and all(isinstance(x, dict) for x in v.values()):
                 obj = v
                 break
-        if obj and all(isinstance(x, dict) for x in obj.values()):          # keyed by symbol
-            return [(str(k), {"symbol": k, **r}) for k, r in obj.items()], ""
+        def looks_like_position(k, r) -> bool:
+            return bool(SYMBOL_RE.match(str(k).upper().replace(".", "-"))) and _pick(r, F_QTY) is not None
+        if obj and all(isinstance(x, dict) for x in obj.values()) and all(looks_like_position(k, r) for k, r in obj.items()):
+            return [(str(k), {"symbol": k, **r}) for k, r in obj.items()], ""      # keyed by symbol
     return [], "unrecognised portfolio structure"
 
 
@@ -170,7 +193,8 @@ def sync_from_folder(ps: PortfolioStore, folder: str | Path, sector_lookup: dict
         return SyncResult("no_folder", message=f"folder not found: {folder}")
     path = find_file(f)
     if path is None:
-        return SyncResult("no_file", message=f"no portfolio file ({', '.join(CANDIDATE_FILES)}) in {folder}")
+        names = sorted(x.name for x in f.iterdir())[:40]
+        return SyncResult("no_file", message=f"no portfolio file found in {folder} (looked for {', '.join(CANDIDATE_FILES)} or any json/csv named like portfolio/position/holding). Folder contains: {', '.join(names) or '(empty)'}")
     try:
         raw = path.read_bytes()                                   # read-only open; the file is never modified
     except OSError as e:
@@ -190,8 +214,14 @@ def sync_from_folder(ps: PortfolioStore, folder: str | Path, sector_lookup: dict
     except (ValueError, UnicodeDecodeError) as e:                  # JSONDecodeError is a ValueError: file mid-write or corrupt
         return SyncResult("unreadable", str(path), message=f"file is not valid yet ({e}); nothing changed – will retry")
     if not recognised:
-        return SyncResult("invalid", str(path), errors=errs, message="structure not recognised; nothing changed")
+        try:
+            shape = describe(json.loads(text)) if path.suffix.lower() == ".json" else "; ".join(errs[:2])
+        except ValueError:
+            shape = "?"
+        return SyncResult("invalid", str(path), errors=errs, message=f"structure not recognised in {path.name}: {shape}")
 
+    if not positions and errs:
+        return SyncResult("invalid", str(path), errors=errs, message=f"no usable positions in {path.name}; first problem: {errs[0]}")
     existing = {p.symbol: p for p in ps.positions()}
     res = SyncResult("ok", str(path), errors=errs)
     new_syms = set()

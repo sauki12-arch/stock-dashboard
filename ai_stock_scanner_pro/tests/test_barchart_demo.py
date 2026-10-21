@@ -218,3 +218,22 @@ def test_real_data_is_not_purged_when_staying_real(tmp_path):
     c2 = AppCore(Settings(), clock=lambda: NOW, db_path=tmp_path / "c.db", universe=c.universe, sleep=lambda x: None,
                  provider=YahooProvider(downloader=lambda **kw: None))
     assert c2.store.bar_counts().get("SPY") == 30
+
+
+def test_diagnostics_explain_what_was_found(tmp_path):
+    p = ps()
+    (tmp_path / "notes.txt").write_text("x"); (tmp_path / "state.dat").write_text("x")
+    r = B.sync_from_folder(p, tmp_path)
+    assert r.status == "no_file" and "notes.txt" in r.message and "state.dat" in r.message
+    write(tmp_path, {"account": {"x": 1}, "weird": {"a": {"b": 1}}}, name="my_portfolio_v2.json")      # found by name hint, unknown shape
+    r = B.sync_from_folder(p, tmp_path)
+    assert r.status == "invalid" and "my_portfolio_v2.json" in r.message and "account" in r.message
+
+
+def test_finds_file_in_data_subfolder_and_by_hint(tmp_path):
+    write(tmp_path / "data", LIST)
+    assert B.find_file(tmp_path).name == "portfolio.json"
+    other = tmp_path / "x"; write(other, LIST, name="current_positions_2026.json")
+    assert B.find_file(other).name == "current_positions_2026.json"
+    write(tmp_path / "y", LIST, name="closed_trades.json")
+    assert B.find_file(tmp_path / "y") is None

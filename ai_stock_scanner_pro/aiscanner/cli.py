@@ -95,7 +95,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if not res.errors else 2
     elif cmd == "sync-portfolio":
         r = core.sync_portfolio(force=True)
+        print("folder:", core.settings.barchart.folder, "| enabled:", core.settings.barchart.enabled)
         print(r.status, "-", r.message)
+        if r.file:
+            print("file:", r.file)
         print(f"added {r.added} updated {r.updated} removed {r.removed}")
         for e in r.errors:
             print("ERROR", e)
