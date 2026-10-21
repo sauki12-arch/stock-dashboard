@@ -237,3 +237,15 @@ def test_finds_file_in_data_subfolder_and_by_hint(tmp_path):
     assert B.find_file(other).name == "current_positions_2026.json"
     write(tmp_path / "y", LIST, name="closed_trades.json")
     assert B.find_file(tmp_path / "y") is None
+
+
+def test_multiple_lots_of_same_symbol_are_merged(tmp_path):
+    p = ps()
+    write(tmp_path, [{"symbol": "DVN", "shares": 10, "entry": 40, "stop": 36, "target": 50, "opened": "2026-02-01"},
+                     {"symbol": "DVN", "shares": 30, "entry": 44, "stop": 39, "target": 52, "opened": "2026-01-10"},
+                     {"symbol": "VLO", "shares": 5, "entry": 100}])
+    r = B.sync_from_folder(p, tmp_path)
+    assert r.status == "ok" and not r.errors and "DVN (2 lots)" in r.message
+    d = p.get("DVN")
+    assert d.qty == 40 and d.avg_cost == pytest.approx((10 * 40 + 30 * 44) / 40) and d.stop == 39 and d.target == 52 and d.opened_at == "2026-01-10"
+    assert B.sync_from_folder(p, tmp_path).status == "unchanged"          # hash stored because nothing was skipped

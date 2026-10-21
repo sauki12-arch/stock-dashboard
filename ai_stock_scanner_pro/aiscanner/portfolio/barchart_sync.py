@@ -140,6 +140,22 @@ def _records(obj) -> tuple[list[tuple[str, dict]], str]:
     return [], "unrecognised portfolio structure"
 
 
+out_info: list[str] = []          # informational notes from the last parse (not errors)
+
+
+def merge_lots(lots: list[Position]) -> Position:
+    """Several BARCHART rows for one symbol = several lots: sum shares, weighted-average cost, TIGHTEST (highest) stop so a breach of
+    any lot's stop is reported, highest target, earliest open date."""
+    qty = sum(x.qty for x in lots)
+    cost = sum(x.qty * x.avg_cost for x in lots) / qty
+    stops = [x.stop for x in lots if x.stop]
+    targets = [x.target for x in lots if x.target]
+    opened = sorted(x.opened_at for x in lots if x.opened_at)
+    first = lots[0]
+    return Position(first.symbol, qty, cost, max(stops) if stops else None, max(targets) if targets else None,
+                    first.sector or next((x.sector for x in lots if x.sector), ""), first.strategy, opened[0] if opened else "", SOURCE_TAG)
+
+
 def parse_barchart_json(obj, sector_lookup: dict[str, str] | None = None) -> tuple[list[Position], list[str], float | None, bool]:
     """-> (positions, errors, cash, recognised). `recognised` is False when the structure itself could not be understood."""
     recs, problem = _records(obj)
@@ -153,9 +169,8 @@ def parse_barchart_json(obj, sector_lookup: dict[str, str] | None = None) -> tup
                 cash = None
     if problem:
         return [], [problem], cash, False
-    out: list[Position] = []
+    lots: dict[str, list[Position]] = {}
     errs: list[str] = []
-    seen: set[str] = set()
     for label, r in recs:
         try:
             status = str(_pick(r, ("status", "state")) or "").lower()
@@ -167,8 +182,6 @@ def parse_barchart_json(obj, sector_lookup: dict[str, str] | None = None) -> tup
             sym = str(_pick(r, F_SYMBOL) or "").strip().upper().replace(".", "-")
             if not SYMBOL_RE.match(sym):
                 raise ValueError(f"{label}: invalid symbol {sym!r}")
-            if sym in seen:
-                raise ValueError(f"{label}: duplicate symbol {sym}")
             qty = _num(_pick(r, F_QTY), "shares", label)
             cost = _num(_pick(r, F_ENTRY), "entry", label)
             if qty is None or cost is None:
@@ -178,11 +191,15 @@ def parse_barchart_json(obj, sector_lookup: dict[str, str] | None = None) -> tup
         except ValueError as e:
             errs.append(str(e))
             continue
-        seen.add(sym)
         opened = str(_pick(r, F_OPENED) or "")
-        out.append(Position(sym, qty, cost, stop, target, _sector(_pick(r, ("sector",)), sym, sector_lookup or {}),
+        lots.setdefault(sym, []).append(Position(sym, qty, cost, stop, target, _sector(_pick(r, ("sector",)), sym, sector_lookup or {}),
                             str(_pick(r, ("strategy",)) or "").lower() if str(_pick(r, ("strategy",)) or "").lower() in ("swing", "longterm") else "",
                             opened, SOURCE_TAG))
+    out = [x[0] if len(x) == 1 else merge_lots(x) for x in lots.values()]
+    merged = {k: len(v) for k, v in lots.items() if len(v) > 1}
+    if merged:
+        errs_info = ", ".join(f"{k} ({n} lots)" for k, n in merged.items())
+        out_info.append(f"merged lots: {errs_info}")
     return out, errs, cash, True
 
 
@@ -202,6 +219,7 @@ def sync_from_folder(ps: PortfolioStore, folder: str | Path, sector_lookup: dict
     digest = hashlib.sha256(raw).hexdigest()
     if not force and ps.store.kv_get("barchart_hash") == digest:
         return SyncResult("unchanged", str(path))
+    out_info.clear()
     try:
         text = raw.decode("utf-8-sig")
         if path.suffix.lower() == ".json":
@@ -252,5 +270,5 @@ def sync_from_folder(ps: PortfolioStore, folder: str | Path, sector_lookup: dict
         res.cash_set = cash
     if not errs:
         ps.store.kv_set("barchart_hash", digest)                   # re-process next time if any row failed to parse
-    res.message = f"{len(positions)} positions read from {path.name}" + (f"; {len(errs)} rows skipped" if errs else "")
+    res.message = f"{len(positions)} positions read from {path.name}" + ("; " + "; ".join(out_info) if out_info else "") + (f"; {len(errs)} rows skipped" if errs else "")
     return res
