@@ -27,13 +27,23 @@ the scanner does not change that. It only saves you from flipping through
 `${CLAUDE_SKILL_DIR}` below is this skill's folder (where this SKILL.md lives).
 
 ```bash
-python3 "${CLAUDE_SKILL_DIR}/scan.py" universe                       # -> trader/universe.txt
+python3 "${CLAUDE_SKILL_DIR}/scan.py" sp500                          # S&P 500 list -> trader/sp500.txt
+python3 "${CLAUDE_SKILL_DIR}/scan.py" daily --sp500                  # DEFAULT: scan the S&P 500
+python3 "${CLAUDE_SKILL_DIR}/scan.py" orb --sp500                    # DEFAULT: opening-range scan of the S&P 500
+python3 "${CLAUDE_SKILL_DIR}/scan.py" universe                       # all US stocks -> trader/universe.txt
 python3 "${CLAUDE_SKILL_DIR}/scan.py" daily                          # before the open -> trader/watchlist.json
 python3 "${CLAUDE_SKILL_DIR}/scan.py" daily --symbols TSLA,NVDA,AMD  # or --watchlist FILE, --limit 200
 python3 "${CLAUDE_SKILL_DIR}/scan.py" orb                            # after 9:50 AM ET -> trader/watchlist.json
 python3 "${CLAUDE_SKILL_DIR}/scan.py" orb --at 10:15                 # cut the clock at 10:15 AM ET
 python3 "${CLAUDE_SKILL_DIR}/scan.py" orb --watchlist trader/watchlist.json --json
 ```
+
+**Default universe: the S&P 500.** Unless the user asks for the whole market
+or names tickers, always run `daily` and `orb` with `--sp500`. The list comes
+from Wikipedia's "List of S&P 500 companies", is cached in `trader/sp500.txt`,
+and is re-downloaded with `--refresh-sp500` (do it about once a month, since
+the index changes). Only use `universe` (all US stocks) when the user asks to
+scan everything.
 
 Flags: `--min-price 5` and `--min-volume` (daily 1,000,000, orb 0),
 `--or-minutes 15`, `--max-confirm 200` (orb stage 2),

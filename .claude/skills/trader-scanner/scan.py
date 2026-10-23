@@ -91,6 +91,8 @@ BAR_MIN = 5
 MAX_CONFIRM = 200   # stage-2 v8 charts per orb scan, most traded first
 MIN_DAILY_BARS = 30
 DEFAULT_UNIVERSE = "trader/universe.txt"
+SP500_FILE = "trader/sp500.txt"
+SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 NOTE = "A scan is a list of charts that match a rule, not a list of stocks to buy."
 
 NYSE_HOLIDAYS = {
@@ -773,6 +775,8 @@ def read_symbols(a, offline_syms=None):
         syms = [s for s in re.split(r"[,\s]+", a.symbols.upper()) if s]
     elif a.watchlist:
         syms = symbols_from_file(a.watchlist)
+    elif getattr(a, "sp500", False):
+        syms = load_sp500(refresh=getattr(a, "refresh_sp500", False))
     elif offline_syms is not None and not a.universe:
         syms = sorted(offline_syms)  # offline: every chart in the file, unless a list was given
     else:
@@ -789,6 +793,45 @@ def read_symbols(a, offline_syms=None):
     if not out:
         raise ScanError("no symbols to scan")
     return out
+
+
+def parse_sp500(html):
+    """Ticker, name rows from the 'constituents' table on Wikipedia's S&P 500 page."""
+    m = re.search(r'<table[^>]*id="constituents".*?</table>', html, re.S)
+    if not m:
+        raise ScanError("could not find the S&P 500 table on the Wikipedia page")
+    rows = []
+    for tr in re.findall(r"<tr.*?</tr>", m.group(0), re.S)[1:]:
+        cells = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c)).strip()
+                 for c in re.findall(r"<td.*?</td>", tr, re.S)]
+        if len(cells) >= 2 and re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,5}", cells[0]):
+            rows.append((cells[0].replace(".", "-"), cells[1]))
+    if len(rows) < 450:
+        raise ScanError("only %d S&P 500 rows parsed; the Wikipedia page layout may have changed" % len(rows))
+    return rows
+
+
+def load_sp500(offline=None, refresh=False, path=SP500_FILE):
+    """The S&P 500 symbols: from the cached file, else downloaded and cached."""
+    if offline:
+        with open(offline, encoding="utf-8", errors="replace") as fh:
+            return [r[0] for r in parse_sp500(fh.read())]
+    if os.path.exists(path) and not refresh:
+        return symbols_from_file(path)
+    try:
+        rows = parse_sp500(http_get(SP500_URL, timeout=60))
+    except urllib.error.HTTPError as e:
+        raise ScanError("wikipedia.org answered HTTP %d for the S&P 500 list" % e.code)
+    except (urllib.error.URLError, OSError) as e:
+        raise ScanError("could not reach wikipedia.org: %s" % getattr(e, "reason", e))
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("# S&P 500, from %s\n" % SP500_URL)
+        for sym, name in rows:
+            fh.write("%s|%s\n" % (sym, name))
+    return [r[0] for r in rows]
 
 
 def symbols_from_file(path):
@@ -1038,10 +1081,15 @@ def main(argv=None):
     p.add_argument("--pause", type=float, default=PAUSE)
     p.add_argument("--json", action="store_true")
 
+    p = sub.add_parser("sp500", help="download the S&P 500 list -> %s" % SP500_FILE)
+    p.add_argument("--offline", metavar="FILE", help="a saved copy of the Wikipedia page")
+
     def common(p, min_price, min_volume):
         g = p.add_mutually_exclusive_group()
         g.add_argument("--symbols", help="comma-separated tickers instead of the universe")
         g.add_argument("--watchlist", metavar="FILE", help="a watchlist.json (hits) or a text file of tickers")
+        g.add_argument("--sp500", action="store_true", help="scan the S&P 500 (list cached in %s)" % SP500_FILE)
+        p.add_argument("--refresh-sp500", action="store_true", help="re-download the S&P 500 list")
         p.add_argument("--universe", help="symbol list, one SYMBOL|Name a line (default %s)" % DEFAULT_UNIVERSE)
         p.add_argument("--limit", type=int, help="scan only the first N symbols")
         p.add_argument("--min-price", type=float, default=min_price)
@@ -1070,6 +1118,10 @@ def main(argv=None):
         ap.print_help()
         return 1
     try:
+        if a.cmd == "sp500":
+            syms = load_sp500(offline=a.offline, refresh=True)
+            print("S&P 500: %d symbols -> %s" % (len(syms), SP500_FILE))
+            return 0
         return {"universe": cmd_universe, "daily": cmd_daily, "orb": cmd_orb}[a.cmd](a)
     except ScanError as e:
         print("scan.py: %s" % e, file=sys.stderr)
