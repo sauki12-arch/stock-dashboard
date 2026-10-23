@@ -40,7 +40,7 @@ python3 "${CLAUDE_SKILL_DIR}/scan.py" orb --watchlist trader/watchlist.json --js
 
 **Default universe: the S&P 500.** Unless the user asks for the whole market
 or names tickers, always run `daily` and `orb` with `--sp500`. The list comes
-from Wikipedia's "List of S&P 500 companies", is cached in `trader/sp500.txt`,
+from the public datasets/s-and-p-500-companies CSV on GitHub (Wikipedia as a fallback), is cached in `trader/sp500.txt`,
 and is re-downloaded with `--refresh-sp500` (do it about once a month, since
 the index changes). Only use `universe` (all US stocks) when the user asks to
 scan everything.

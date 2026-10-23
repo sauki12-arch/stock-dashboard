@@ -811,6 +811,29 @@ def parse_sp500(html):
     return rows
 
 
+SP500_CSV_URL = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+
+
+def parse_sp500_csv(text):
+    import csv
+    import io
+    rows = [(r["Symbol"].strip().replace(".", "-"), r.get("Security", "").strip())
+            for r in csv.DictReader(io.StringIO(text)) if r.get("Symbol")]
+    if len(rows) < 450:
+        raise ScanError("only %d S&P 500 rows in the CSV" % len(rows))
+    return rows
+
+
+def fetch_sp500():
+    errs = []
+    for url, parse in ((SP500_CSV_URL, parse_sp500_csv), (SP500_URL, parse_sp500)):
+        try:
+            return parse(http_get(url, timeout=60)), url
+        except (urllib.error.URLError, OSError, ScanError) as e:
+            errs.append("%s: %s" % (url.split("/")[2], getattr(e, "reason", e)))
+    raise ScanError("could not download the S&P 500 list (%s)" % "; ".join(errs))
+
+
 def load_sp500(offline=None, refresh=False, path=SP500_FILE):
     """The S&P 500 symbols: from the cached file, else downloaded and cached."""
     if offline:
@@ -818,17 +841,12 @@ def load_sp500(offline=None, refresh=False, path=SP500_FILE):
             return [r[0] for r in parse_sp500(fh.read())]
     if os.path.exists(path) and not refresh:
         return symbols_from_file(path)
-    try:
-        rows = parse_sp500(http_get(SP500_URL, timeout=60))
-    except urllib.error.HTTPError as e:
-        raise ScanError("wikipedia.org answered HTTP %d for the S&P 500 list" % e.code)
-    except (urllib.error.URLError, OSError) as e:
-        raise ScanError("could not reach wikipedia.org: %s" % getattr(e, "reason", e))
+    rows, src = fetch_sp500()
     d = os.path.dirname(path)
     if d:
         os.makedirs(d, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write("# S&P 500, from %s\n" % SP500_URL)
+        fh.write("# S&P 500, from %s\n" % src)
         for sym, name in rows:
             fh.write("%s|%s\n" % (sym, name))
     return [r[0] for r in rows]
